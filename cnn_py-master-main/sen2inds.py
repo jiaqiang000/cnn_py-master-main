@@ -16,12 +16,17 @@
 
 import json
 import sys, io
-import jieba
 import random
+
+try:
+    import jieba
+except ImportError:
+    jieba = None
 
 # 将标准输出编码调整为 gb18030。
 # 这是原作者为了兼容某些 Windows 终端环境所做的设置。
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer,encoding='gb18030') #改变标准输出的默认编码
+if sys.platform.startswith('win'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='gb18030')
 
 # 当前默认处理的原始数据文件。
 trainFile = 'baike_qa2019/my_traindata.json'
@@ -35,6 +40,18 @@ trainDataVecFile = 'traindata_vec.txt'
 maxLen = 20
 
 labelFile = 'label.txt'
+
+
+def ensure_jieba():
+    """
+    只有在需要重新分词与向量化时才要求 jieba 可用。
+    """
+    if jieba is None:
+        raise ImportError(
+            'jieba is required for preprocessing. Install it before running json2txt().'
+        )
+
+
 def read_labelFile(file):
     """
     读取标签文件。
@@ -93,6 +110,8 @@ def json2txt():
     输出文件中每一行的格式为：
     标签编号,词索引1,词索引2,...,词索引20,
     """
+    ensure_jieba()
+
     # 读取标签映射与词表映射。
     label_dict, label_n2w = read_labelFile(labelFile)
     word2ind, ind2word = get_worddict(wordLabelFile)

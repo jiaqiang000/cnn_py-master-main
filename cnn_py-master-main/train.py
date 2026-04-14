@@ -12,11 +12,12 @@
 5. 每个 epoch 结束后保存最新模型参数。
 """
 
-import torch
+import argparse
 import os
-import torch.nn as nn
-import numpy as np
 import time
+
+import torch
+import torch.nn as nn
 
 from model import textCNN
 import sen2inds
@@ -47,12 +48,67 @@ dataLoader_param = {
 }
 
 
+def load_vectorized_data(file_path):
+    """
+    读取已经向量化好的数据文件。
+
+    每一行格式：
+    label,idx1,idx2,...,idx20,
+    """
+    rows = open(file_path, 'r').read().split('\n')
+    rows = list(filter(None, rows))
+    labels = []
+    sentences = []
+    for row in rows:
+        items = list(filter(None, row.split(',')))
+        items = [int(x) for x in items]
+        labels.append(items[0])
+        sentences.append(items[1:])
+    return labels, sentences
+
+
+def evaluate(net, device, file_path='valdata_vec.txt'):
+    """
+    在验证集上计算准确率。
+    """
+    labels, sentences = load_vectorized_data(file_path)
+    total = len(labels)
+    right = 0
+
+    net.eval()
+    with torch.no_grad():
+        for label, sentence in zip(labels, sentences):
+            sentence = torch.tensor(sentence, dtype=torch.long, device=device).unsqueeze(0)
+            predict = net(sentence).argmax(dim=1).item()
+            if predict == label:
+                right += 1
+    net.train()
+
+    return right / total if total else 0.0
+
+
+def parse_args():
+    """
+    解析命令行参数，便于控制训练轮数和是否从头开始训练。
+    """
+    parser = argparse.ArgumentParser(description='Train TextCNN for text classification.')
+    parser.add_argument('--epochs', type=int, default=100, help='number of training epochs')
+    parser.add_argument(
+        '--from-scratch',
+        action='store_true',
+        help='ignore existing weight.pkl and initialize a new model',
+    )
+    return parser.parse_args()
+
+
 def main():
     """
     训练入口函数。
 
     该函数不接收外部参数，直接依赖当前目录下已经准备好的词表、标签和向量化数据文件。
     """
+    args = parse_args()
+
     # 根据当前环境自动选择 GPU 或 CPU。
     # 如果机器支持 CUDA，则优先在 GPU 上训练；否则退回 CPU。
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # add 2024.11.10
@@ -64,10 +120,11 @@ def main():
     # 默认权重文件名。
     # 如果该文件存在，说明之前已经训练过，可以直接继续训练。
     weightFile = 'weight.pkl'
-    if os.path.exists(weightFile):
+    bestWeightFile = 'best_weight.pkl'
+    if os.path.exists(weightFile) and not args.from_scratch:
         print('load weight')
         # 加载已有模型参数。
-        net.load_state_dict(torch.load(weightFile))
+        net.load_state_dict(torch.load(weightFile, map_location=device))
     else:
         # 如果不存在历史权重，则按照 model.py 中定义的方式初始化参数。
         net.init_weight()
@@ -81,10 +138,6 @@ def main():
     print('init dataset...')
     dataLoader = textCNN_data.textCNN_dataLoader(dataLoader_param)
 
-    # 读取验证集数据。
-    # 注意：当前脚本只是把验证集读入内存，并没有在训练过程中真正计算验证集指标。
-    valdata = textCNN_data.get_valdata()
-
     # 选择优化器与损失函数。
     # 模型输出的是 log_softmax，因此这里使用 NLLLoss 与之对应。
     optimizer = torch.optim.Adam(net.parameters(), lr=0.01)
@@ -97,11 +150,13 @@ def main():
     # 预留的测试/验证日志文件。
     # 当前版本虽然创建了该文件，但未写入验证结果。
     log_test = open('log_test_{}.txt'.format(time.strftime('%y%m%d%H')), 'w')
-    log_test.write('epoch step test_acc\n')
+    log_test.write('epoch val_acc\n')
 
     print("training...")
-    # 训练 100 个 epoch。
-    for epoch in range(100):
+    best_acc = -1.0
+    # 按指定轮数训练。
+    for epoch in range(args.epochs):
+        net.train()
         # DataLoader 每次返回一个 batch：
         # clas 是类别编号，sentences 是已经补齐长度的词索引序列。
         for i, (clas, sentences) in enumerate(dataLoader):
@@ -129,14 +184,31 @@ def main():
                 data = str(epoch + 1) + ' ' + str(i + 1) + ' ' + str(loss.item()) + '\n'
                 log.write(data)
 
+        val_acc = evaluate(net, device)
+        log_test.write('{} {:.6f}\n'.format(epoch + 1, val_acc))
+
         # 每个 epoch 结束后保存最新模型。
         print("save model...")
 
         # 保存一个固定文件名，便于下次直接加载继续训练。
         torch.save(net.state_dict(), weightFile)
+        if val_acc >= best_acc:
+            best_acc = val_acc
+            torch.save(net.state_dict(), bestWeightFile)
         # 同时保存一个带时间戳、epoch 和 loss 的快照文件，便于回溯不同训练阶段的模型。
         torch.save(net.state_dict(), "model {}_model_iter_{}_{}_loss_{:.2f}.pkl".format(time.strftime('%y%m%d%H'), epoch, i, loss.item()))  # current is model.pkl
-        print("epoch:", epoch + 1, "step:", i + 1, "loss:", loss.item())      
+        print(
+            "epoch:",
+            epoch + 1,
+            "step:",
+            i + 1,
+            "loss:",
+            loss.item(),
+            "val_acc:",
+            round(val_acc, 6),
+            "best_val_acc:",
+            round(best_acc, 6),
+        )
 
 
 if __name__ == "__main__":
