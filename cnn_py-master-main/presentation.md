@@ -256,6 +256,15 @@ python train.py --epochs 10 --from-scratch --lr 0.003 --output-dir outputs/lr_0.
 python train.py --epochs 10 --from-scratch --lr 0.001 --output-dir outputs/lr_0.001
 
 ```
+
+对应的测试命令如下：
+
+```bash
+python test.py --weight-dir outputs/lr_0.01
+python test.py --weight-dir outputs/lr_0.003
+python test.py --weight-dir outputs/lr_0.001
+```
+
 lr_0.003
 ![alt text](assets/presentation/image-3.png)
 ![alt text](assets/presentation/image-4.png)
@@ -271,25 +280,22 @@ python train.py --epochs 10 --from-scratch --kernel-num 16 --output-dir outputs/
 python train.py --epochs 10 --from-scratch --kernel-num 32 --output-dir outputs/kernel_32
 python train.py --epochs 10 --from-scratch --kernel-num 64 --output-dir outputs/kernel_64
 ```
+
+对应的测试命令如下：
+
+```bash
+python test.py --weight-dir outputs/kernel_16
+python test.py --weight-dir outputs/kernel_32
+python test.py --weight-dir outputs/kernel_64
+```
+
 kernel_32
 ![alt text](assets/presentation/image-7.png)
 ![alt text](assets/presentation/image-8.png)
 kernel_64
 ![alt text](assets/presentation/image-9.png)
 ![alt text](assets/presentation/image-10.png)
-### 7.3 输入长度实验
-
-输入长度实验需要先重新生成不同长度的向量化文件，再使用对应的训练集和验证集进行训练。
-
-```bash
-python sen2inds.py --input-json baike_qa2019/my_traindata.json --output-file traindata_vec_len30.txt --max-len 30
-python sen2inds.py --input-json baike_qa2019/my_validdata.json --output-file valdata_vec_len30.txt --max-len 30 --no-shuffle
-python train.py --epochs 10 --from-scratch --train-file traindata_vec_len30.txt --val-file valdata_vec_len30.txt --output-dir outputs/len_30
-```
-
-同理，可以生成长度为 `20` 和 `40` 的向量化文件，完成输入长度实验。
-
-### 7.4 Dropout 实验
+### 7.3 Dropout 实验
 
 在保持其他参数不变的条件下，分别设置 Dropout 为 `0.3`、`0.5`、`0.6`，比较不同正则化强度对模型泛化性能的影响。
 
@@ -298,14 +304,18 @@ python train.py --epochs 10 --from-scratch --dropout 0.3 --output-dir outputs/dr
 python train.py --epochs 10 --from-scratch --dropout 0.5 --output-dir outputs/dropout_0.5
 python train.py --epochs 10 --from-scratch --dropout 0.6 --output-dir outputs/dropout_0.6
 ```
+
+对应的测试命令如下：
+
+```bash
+python test.py --weight-dir outputs/dropout_0.3
+python test.py --weight-dir outputs/dropout_0.5
+python test.py --weight-dir outputs/dropout_0.6
+```
+
 dropout_0.3
 ![alt text](assets/presentation/image-11.png)
 ![alt text](assets/presentation/image-12.png)
-每组实验训练完成后，都可以通过以下命令进行测试：
-
-```bash
-python test.py --weight-dir 对应实验输出目录
-```
 
 ## 8. 训练过程截图
 
