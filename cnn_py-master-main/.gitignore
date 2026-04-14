@@ -8,4 +8,4 @@ log_*.txt
 log_test_*.txt
 model *_model_iter_*.pkl
 model_*_epoch_*.pkl
-baoke_qa/
+baike_qa/
