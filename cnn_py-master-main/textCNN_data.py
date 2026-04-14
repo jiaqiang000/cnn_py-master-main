@@ -32,7 +32,7 @@ def get_valdata(file=valDataFile):
     返回：
     - 打乱顺序后的字符串列表，每个元素对应文件中的一行
     """
-    valData = open(valDataFile, 'r').read().split('\n')
+    valData = open(file, 'r').read().split('\n')
     valData = list(filter(None, valData))
     random.shuffle(valData)
 
@@ -47,10 +47,10 @@ class textCNN_data(Dataset):
     - cla: 整数类别编号
     - sentence: 词索引组成的一维 numpy 数组
     """
-    def __init__(self):
+    def __init__(self, train_file=trainDataFile):
         # 直接把整个训练文件读入内存。
         # 对于当前这个小型教学项目，这种实现足够简单直接。
-        trainData = open(trainDataFile, 'r').read().split('\n')
+        trainData = open(train_file, 'r').read().split('\n')
         trainData = list(filter(None, trainData))
         # 在数据集初始化时先随机打乱一次。
         random.shuffle(trainData)
@@ -84,7 +84,7 @@ class textCNN_data(Dataset):
 
 
 
-def textCNN_dataLoader(param):
+def textCNN_dataLoader(param, train_file=trainDataFile):
     """
     构造训练用 DataLoader。
 
@@ -94,7 +94,7 @@ def textCNN_dataLoader(param):
     返回：
     - PyTorch DataLoader 对象
     """
-    dataset = textCNN_data()
+    dataset = textCNN_data(train_file=train_file)
     batch_size = param['batch_size']
     shuffle = param['shuffle']
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)

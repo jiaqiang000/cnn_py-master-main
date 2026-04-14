@@ -90,7 +90,7 @@ self.fc1 = nn.Linear(len(kernel_size) * kernel_num, class_num)
 
 ## 5. 主要参数设置
 
-本实验的主要参数设置如下：
+本实验的基线参数设置如下：
 
 | 参数 | 取值 |
 | --- | --- |
@@ -106,6 +106,15 @@ self.fc1 = nn.Linear(len(kernel_size) * kernel_num, class_num)
 | 损失函数 | NLLLoss |
 | 输入文本长度 | 20 |
 
+除基线设置外，为了分析不同超参数对模型效果的影响，本实验进一步设计了以下对比实验：
+
+| 实验类型 | 对比取值 |
+| --- | --- |
+| 学习率实验 | 0.01 / 0.003 / 0.001 |
+| 卷积核个数实验 | 16 / 32 / 64 |
+| 输入长度实验 | 20 / 30 / 40 |
+| Dropout 实验 | 0.3 / 0.5 / 0.6 |
+
 ## 6. 项目中的关键改动
 
 本实验没有修改 TextCNN 的核心网络结构，主要是在原有教学代码基础上补充了训练和评估流程，使其更适合完成一次完整实验。关键改动如下：
@@ -115,22 +124,56 @@ self.fc1 = nn.Linear(len(kernel_size) * kernel_num, class_num)
 3. 在训练时自动保存验证集准确率最高的模型参数。
 4. 在 `test.py` 中增加了总体准确率、各类别准确率和混淆矩阵输出。
 5. 对运行设备进行了兼容处理，使代码在 CPU 或 GPU 环境下都能正常运行。
+6. 为支持学习率、卷积核个数、输入长度和 Dropout 对比实验，对训练、测试和向量化脚本做了参数化改造，使不同实验可以通过命令行切换完成。
 
 改动后的核心代码包括：
 
 ### 6.1 训练参数控制
 
+为了支持超参数对比实验，在 `train.py` 中增加了学习率、卷积核个数、Dropout、训练文件和验证文件等参数接口：
+
 ```python
 def parse_args():
     parser = argparse.ArgumentParser(description='Train TextCNN for text classification.')
     parser.add_argument('--epochs', type=int, default=100, help='number of training epochs')
+    parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
+    parser.add_argument('--kernel-num', type=int, default=16, help='number of kernels for each filter size')
+    parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
+    parser.add_argument('--train-file', default='traindata_vec.txt', help='vectorized training file')
+    parser.add_argument('--val-file', default='valdata_vec.txt', help='vectorized validation file')
     parser.add_argument('--output-dir', default='outputs', help='directory for logs and saved weights')
     parser.add_argument('--from-scratch', action='store_true', help='ignore existing weight.pkl and initialize a new model')
     parser.add_argument('--save-checkpoints', action='store_true', help='save an extra checkpoint file after every epoch')
     return parser.parse_args()
 ```
 
-### 6.2 训练阶段增加验证集评估
+这样学习率实验、卷积核个数实验和 Dropout 实验都不需要手动修改源码，只需要在命令行中传入不同参数即可。
+
+### 6.2 输入长度实验的兼容改造
+
+输入长度实验不仅影响模型输入，还会影响向量化后的数据文件，因此本实验对 `sen2inds.py` 和 `test.py` 也进行了相应调整。
+
+在 `sen2inds.py` 中增加了最大长度与输入输出文件参数：
+
+```python
+def parse_args():
+    parser = argparse.ArgumentParser(description='Vectorize JSON text data for TextCNN.')
+    parser.add_argument('--input-json', default=trainFile, help='input json lines file')
+    parser.add_argument('--output-file', default=trainDataVecFile, help='output vector file')
+    parser.add_argument('--max-len', type=int, default=maxLen, help='max token length')
+    parser.add_argument('--no-shuffle', action='store_true', help='disable shuffling before vectorization')
+    return parser.parse_args()
+```
+
+在 `test.py` 中，则将原来固定读取 20 个词索引的写法调整为读取标签之后的全部词索引：
+
+```python
+sentence = np.array([int(x) for x in data[1:]])
+```
+
+这样就可以分别生成长度为 20、30、40 的向量化文件，并复用同一套训练与测试脚本完成输入长度对比实验。
+
+### 6.3 训练阶段增加验证集评估
 
 ```python
 def evaluate(net, device, file_path='valdata_vec.txt'):
@@ -150,7 +193,7 @@ def evaluate(net, device, file_path='valdata_vec.txt'):
     return right / total if total else 0.0
 ```
 
-### 6.3 保存最优模型
+### 6.4 保存最优模型
 
 ```python
 val_acc = evaluate(net, device)
@@ -162,7 +205,7 @@ if val_acc >= best_acc:
     torch.save(net.state_dict(), bestWeightFile)
 ```
 
-### 6.4 测试阶段输出完整评估结果
+### 6.5 测试阶段输出完整评估结果
 
 ```python
 print('final_acc:{}({}/{})'.format(numRight / numAll, numRight, numAll))
@@ -188,7 +231,7 @@ print(confusion)
 4. 在每个 epoch 结束后计算验证集准确率。
 5. 保存最佳模型，并使用测试脚本进行最终评估。
 
-重新训练模型的命令如下：
+基线实验重新训练模型的命令如下：
 
 ```bash
 python train.py --epochs 10 --from-scratch
@@ -198,6 +241,70 @@ python train.py --epochs 10 --from-scratch
 
 ```bash
 python test.py
+```
+
+为了完成超参数对比实验，还可以采用如下方式组织实验。
+
+### 7.1 学习率实验
+
+在保持其他参数不变的条件下，分别设置学习率为 `0.01`、`0.003`、`0.001`，比较不同学习率对模型效果的影响。
+
+```bash
+python train.py --epochs 10 --from-scratch --lr 0.01 --output-dir outputs/lr_0.01
+python train.py --epochs 10 --from-scratch --lr 0.003 --output-dir outputs/lr_0.003
+
+python train.py --epochs 10 --from-scratch --lr 0.001 --output-dir outputs/lr_0.001
+
+```
+lr_0.003
+![alt text](assets/presentation/image-3.png)
+![alt text](assets/presentation/image-4.png)
+lr_0.001
+![alt text](assets/presentation/image-5.png)
+![alt text](assets/presentation/image-6.png)
+### 7.2 卷积核个数实验
+
+在保持其他参数不变的条件下，分别设置卷积核个数为 `16`、`32`、`64`，比较不同特征提取能力下的分类效果。
+
+```bash
+python train.py --epochs 10 --from-scratch --kernel-num 16 --output-dir outputs/kernel_16
+python train.py --epochs 10 --from-scratch --kernel-num 32 --output-dir outputs/kernel_32
+python train.py --epochs 10 --from-scratch --kernel-num 64 --output-dir outputs/kernel_64
+```
+kernel_32
+![alt text](assets/presentation/image-7.png)
+![alt text](assets/presentation/image-8.png)
+kernel_64
+![alt text](assets/presentation/image-9.png)
+![alt text](assets/presentation/image-10.png)
+### 7.3 输入长度实验
+
+输入长度实验需要先重新生成不同长度的向量化文件，再使用对应的训练集和验证集进行训练。
+
+```bash
+python sen2inds.py --input-json baike_qa2019/my_traindata.json --output-file traindata_vec_len30.txt --max-len 30
+python sen2inds.py --input-json baike_qa2019/my_validdata.json --output-file valdata_vec_len30.txt --max-len 30 --no-shuffle
+python train.py --epochs 10 --from-scratch --train-file traindata_vec_len30.txt --val-file valdata_vec_len30.txt --output-dir outputs/len_30
+```
+
+同理，可以生成长度为 `20` 和 `40` 的向量化文件，完成输入长度实验。
+
+### 7.4 Dropout 实验
+
+在保持其他参数不变的条件下，分别设置 Dropout 为 `0.3`、`0.5`、`0.6`，比较不同正则化强度对模型泛化性能的影响。
+
+```bash
+python train.py --epochs 10 --from-scratch --dropout 0.3 --output-dir outputs/dropout_0.3
+python train.py --epochs 10 --from-scratch --dropout 0.5 --output-dir outputs/dropout_0.5
+python train.py --epochs 10 --from-scratch --dropout 0.6 --output-dir outputs/dropout_0.6
+```
+dropout_0.3
+![alt text](assets/presentation/image-11.png)
+![alt text](assets/presentation/image-12.png)
+每组实验训练完成后，都可以通过以下命令进行测试：
+
+```bash
+python test.py --weight-dir 对应实验输出目录
 ```
 
 ## 8. 训练过程截图

@@ -13,6 +13,7 @@
 """
 
 import argparse
+import json
 import os
 import time
 
@@ -28,17 +29,6 @@ import textCNN_data
 word2ind, ind2word = sen2inds.get_worddict('wordLabel.txt')
 # 读取标签与数字编号之间的映射关系，例如 “教育 -> 0”。
 label_w2n, label_n2w = sen2inds.read_labelFile('label.txt')
-
-# TextCNN 的核心超参数配置。
-# 这些参数会传入 model.py 中的 textCNN 类，用于构造网络。
-textCNN_param = {
-    'vocab_size': len(word2ind),
-    'embed_dim': 60,
-    'class_num': len(label_w2n),
-    "kernel_num": 16,
-    "kernel_size": [3, 4, 5],
-    "dropout": 0.5,
-}
 # DataLoader 相关参数。
 # batch_size 决定每次训练喂入多少条样本；
 # shuffle=True 表示每个 epoch 都打乱数据顺序。
@@ -87,12 +77,49 @@ def evaluate(net, device, file_path='valdata_vec.txt'):
     return right / total if total else 0.0
 
 
+def build_model_params(kernel_num=16, dropout=0.5):
+    """
+    根据实验参数构造 TextCNN 配置。
+    """
+    return {
+        'vocab_size': len(word2ind),
+        'embed_dim': 60,
+        'class_num': len(label_w2n),
+        'kernel_num': kernel_num,
+        'kernel_size': [3, 4, 5],
+        'dropout': dropout,
+    }
+
+
+def load_experiment_config(config_path):
+    """
+    如果输出目录中已经存在实验配置，则优先复用，便于继续训练。
+    """
+    if not os.path.exists(config_path):
+        return None
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def save_experiment_config(config_path, config):
+    """
+    保存本次训练的关键超参数和数据文件路径，便于后续测试复现。
+    """
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+
 def parse_args():
     """
     解析命令行参数，便于控制训练轮数和是否从头开始训练。
     """
     parser = argparse.ArgumentParser(description='Train TextCNN for text classification.')
     parser.add_argument('--epochs', type=int, default=100, help='number of training epochs')
+    parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
+    parser.add_argument('--kernel-num', type=int, default=16, help='number of kernels for each filter size')
+    parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
+    parser.add_argument('--train-file', default='traindata_vec.txt', help='vectorized training file')
+    parser.add_argument('--val-file', default='valdata_vec.txt', help='vectorized validation file')
     parser.add_argument(
         '--output-dir',
         default='outputs',
@@ -124,10 +151,28 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # add 2024.11.10
     print('init net...')
 
+    os.makedirs(args.output_dir, exist_ok=True)
+    config_path = os.path.join(args.output_dir, 'config.json')
+    old_config = load_experiment_config(config_path) if not args.from_scratch else None
+    if old_config:
+        experiment_config = old_config
+    else:
+        experiment_config = {
+            'epochs': args.epochs,
+            'lr': args.lr,
+            'kernel_num': args.kernel_num,
+            'dropout': args.dropout,
+            'train_file': args.train_file,
+            'val_file': args.val_file,
+        }
+        save_experiment_config(config_path, experiment_config)
+
+    textCNN_param = build_model_params(
+        kernel_num=experiment_config['kernel_num'],
+        dropout=experiment_config['dropout'],
+    )
     # 创建模型实例。模型的网络结构由 textCNN_param 决定。
     net = textCNN(textCNN_param)
-
-    os.makedirs(args.output_dir, exist_ok=True)
 
     # 默认权重文件名。
     # 如果该文件存在，说明之前已经训练过，可以直接继续训练。
@@ -156,11 +201,14 @@ def main():
     # 初始化训练数据。
     # textCNN_dataLoader 会从 traindata_vec.txt 中读取样本，并封装成 DataLoader。
     print('init dataset...')
-    dataLoader = textCNN_data.textCNN_dataLoader(dataLoader_param)
+    dataLoader = textCNN_data.textCNN_dataLoader(
+        dataLoader_param,
+        train_file=experiment_config['train_file'],
+    )
 
     # 选择优化器与损失函数。
     # 模型输出的是 log_softmax，因此这里使用 NLLLoss 与之对应。
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(net.parameters(), lr=experiment_config['lr'])
     criterion = nn.NLLLoss()
 
     # 训练损失日志文件。
@@ -207,7 +255,7 @@ def main():
                 data = str(epoch + 1) + ' ' + str(i + 1) + ' ' + str(loss.item()) + '\n'
                 log.write(data)
 
-        val_acc = evaluate(net, device)
+        val_acc = evaluate(net, device, file_path=experiment_config['val_file'])
         log_test.write('{} {:.6f}\n'.format(epoch + 1, val_acc))
 
         # 每个 epoch 结束后保存最新模型。

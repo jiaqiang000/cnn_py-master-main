@@ -14,6 +14,7 @@
 如果想处理验证集，需要手动切换上方的文件路径配置。
 """
 
+import argparse
 import json
 import sys, io
 import random
@@ -103,7 +104,19 @@ def get_worddict(file):
     return word2ind, ind2word
 
 
-def json2txt():
+def parse_args():
+    """
+    支持在不同数据文件和不同最大长度之间切换，便于做对比实验。
+    """
+    parser = argparse.ArgumentParser(description='Vectorize JSON text data for TextCNN.')
+    parser.add_argument('--input-json', default=trainFile, help='input json lines file')
+    parser.add_argument('--output-file', default=trainDataVecFile, help='output vector file')
+    parser.add_argument('--max-len', type=int, default=maxLen, help='max token length')
+    parser.add_argument('--no-shuffle', action='store_true', help='disable shuffling before vectorization')
+    return parser.parse_args()
+
+
+def json2txt(input_file=trainFile, output_file=trainDataVecFile, max_len=maxLen, shuffle=True):
     """
     将原始 json 行文本转成模型训练用的整数序列文件。
 
@@ -117,13 +130,14 @@ def json2txt():
     word2ind, ind2word = get_worddict(wordLabelFile)
 
     # 打开输出文件。
-    traindataTxt = open(trainDataVecFile, 'w')
+    traindataTxt = open(output_file, 'w')
     stoplist = read_stopword(stopwordFile)
 
     # 读取全部原始数据行并打乱顺序。
-    datas = open(trainFile, 'r', encoding='utf_8').read().split('\n')
+    datas = open(input_file, 'r', encoding='utf_8').read().split('\n')
     datas = list(filter(None, datas))
-    random.shuffle(datas)
+    if shuffle:
+        random.shuffle(datas)
 
     for line in datas:
         line = json.loads(line)
@@ -152,12 +166,12 @@ def json2txt():
 
         # length 包含了最前面的标签位。
         length = len(title_ind)
-        if length > maxLen + 1:
-            # 过长则截断，只保留前 maxLen 个词以及标签位。
-            title_ind = title_ind[0:21]
-        if length < maxLen + 1:
+        if length > max_len + 1:
+            # 过长则截断，只保留前 max_len 个词以及标签位。
+            title_ind = title_ind[0:max_len + 1]
+        if length < max_len + 1:
             # 过短则补 0 到固定长度，便于后续批量训练。
-            title_ind.extend([0] * (maxLen - length + 1))
+            title_ind.extend([0] * (max_len - length + 1))
 
         # 将整条样本按逗号分隔写回文本文件。
         for n in title_ind:
@@ -167,7 +181,13 @@ def json2txt():
 
 def main():
     """脚本入口。"""
-    json2txt()
+    args = parse_args()
+    json2txt(
+        input_file=args.input_json,
+        output_file=args.output_file,
+        max_len=args.max_len,
+        shuffle=not args.no_shuffle,
+    )
 
 
 if __name__ == "__main__":

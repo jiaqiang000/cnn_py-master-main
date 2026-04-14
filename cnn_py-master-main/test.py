@@ -11,6 +11,7 @@
 """
 
 import argparse
+import json
 import os
 
 import numpy as np
@@ -22,16 +23,6 @@ import sen2inds
 # 读取词表与标签映射，确保测试阶段的编码方式与训练阶段一致。
 word2ind, ind2word = sen2inds.get_worddict('wordLabel.txt')
 label_w2n, label_n2w = sen2inds.read_labelFile('label.txt')
-
-# 测试时必须与训练时保持完全一致的模型超参数。
-textCNN_param = {
-    'vocab_size': len(word2ind),
-    'embed_dim': 60,
-    'class_num': len(label_w2n),
-    "kernel_num": 16,
-    "kernel_size": [3, 4, 5],
-    "dropout": 0.5,
-}
 
 
 def get_valData(file):
@@ -63,11 +54,38 @@ def parse_net_result(out):
     return label, score
 
 
+def build_model_params(kernel_num=16, dropout=0.5):
+    """
+    根据实验配置构造测试阶段的模型参数。
+    """
+    return {
+        'vocab_size': len(word2ind),
+        'embed_dim': 60,
+        'class_num': len(label_w2n),
+        'kernel_num': kernel_num,
+        'kernel_size': [3, 4, 5],
+        'dropout': dropout,
+    }
+
+
+def load_experiment_config(config_path):
+    """
+    读取训练阶段保存的实验配置。
+    """
+    if not os.path.exists(config_path):
+        return None
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
 def parse_args():
     """
     支持从指定目录读取训练输出的权重文件。
     """
     parser = argparse.ArgumentParser(description='Evaluate TextCNN on the validation set.')
+    parser.add_argument('--kernel-num', type=int, default=16, help='number of kernels for each filter size')
+    parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
+    parser.add_argument('--val-file', default='valdata_vec.txt', help='vectorized validation file')
     parser.add_argument(
         '--weight-dir',
         default='outputs',
@@ -80,9 +98,19 @@ def main():
     """测试入口函数。"""
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    config_path = os.path.join(args.weight_dir, 'config.json')
+    experiment_config = load_experiment_config(config_path) or {
+        'kernel_num': args.kernel_num,
+        'dropout': args.dropout,
+        'val_file': args.val_file,
+    }
 
     # 初始化网络结构。
     print('init net...')
+    textCNN_param = build_model_params(
+        kernel_num=experiment_config['kernel_num'],
+        dropout=experiment_config['dropout'],
+    )
     net = textCNN(textCNN_param)
 
     # 优先读取训练过程中保存的最佳权重，其次读取最新权重。
@@ -117,15 +145,15 @@ def main():
     numAll = 0
     numRight = 0
     confusion = np.zeros((len(label_n2w), len(label_n2w)), dtype=np.int32)
-    testData = get_valData('valdata_vec.txt')
+    testData = get_valData(experiment_config['val_file'])
     with torch.no_grad():
         for data in testData:
             numAll += 1
             # 每一行格式是：label,idx1,idx2,...,idx20,
             data = list(filter(None, data.split(',')))
             label = int(data[0])
-            # 只取后面 20 个位置作为句子输入。
-            sentence = np.array([int(x) for x in data[1:21]])
+            # 取标签之后的全部词索引，兼容不同输入长度实验。
+            sentence = np.array([int(x) for x in data[1:]])
             sentence = torch.from_numpy(sentence)
 
             # 增加 batch 维后送入模型，并把结果转成 numpy 便于后续处理。
