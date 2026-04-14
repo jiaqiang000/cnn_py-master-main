@@ -1,3 +1,10 @@
 __pycache__/
 .idea/
 .venv/
+venv/
+outputs/
+best_weight.pkl
+log_*.txt
+log_test_*.txt
+model *_model_iter_*.pkl
+model_*_epoch_*.pkl

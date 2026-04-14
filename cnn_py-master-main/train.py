@@ -94,9 +94,19 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train TextCNN for text classification.')
     parser.add_argument('--epochs', type=int, default=100, help='number of training epochs')
     parser.add_argument(
+        '--output-dir',
+        default='outputs',
+        help='directory for logs and saved weights',
+    )
+    parser.add_argument(
         '--from-scratch',
         action='store_true',
         help='ignore existing weight.pkl and initialize a new model',
+    )
+    parser.add_argument(
+        '--save-checkpoints',
+        action='store_true',
+        help='save an extra checkpoint file after every epoch',
     )
     return parser.parse_args()
 
@@ -117,14 +127,24 @@ def main():
     # 创建模型实例。模型的网络结构由 textCNN_param 决定。
     net = textCNN(textCNN_param)
 
+    os.makedirs(args.output_dir, exist_ok=True)
+
     # 默认权重文件名。
     # 如果该文件存在，说明之前已经训练过，可以直接继续训练。
-    weightFile = 'weight.pkl'
-    bestWeightFile = 'best_weight.pkl'
-    if os.path.exists(weightFile) and not args.from_scratch:
+    weightFile = os.path.join(args.output_dir, 'weight.pkl')
+    bestWeightFile = os.path.join(args.output_dir, 'best_weight.pkl')
+    load_candidates = [weightFile, bestWeightFile, 'weight.pkl', 'best_weight.pkl', 'textCNN.pkl']
+    load_weight = None
+    if not args.from_scratch:
+        for candidate in load_candidates:
+            if os.path.exists(candidate):
+                load_weight = candidate
+                break
+
+    if load_weight:
         print('load weight')
         # 加载已有模型参数。
-        net.load_state_dict(torch.load(weightFile, map_location=device))
+        net.load_state_dict(torch.load(load_weight, map_location=device))
     else:
         # 如果不存在历史权重，则按照 model.py 中定义的方式初始化参数。
         net.init_weight()
@@ -144,12 +164,15 @@ def main():
     criterion = nn.NLLLoss()
 
     # 训练损失日志文件。
-    log = open('log_{}.txt'.format(time.strftime('%y%m%d%H')), 'w')
+    run_tag = time.strftime('%y%m%d%H')
+    log_path = os.path.join(args.output_dir, 'log_{}.txt'.format(run_tag))
+    log = open(log_path, 'w')
     log.write('epoch step loss\n')
 
     # 预留的测试/验证日志文件。
     # 当前版本虽然创建了该文件，但未写入验证结果。
-    log_test = open('log_test_{}.txt'.format(time.strftime('%y%m%d%H')), 'w')
+    log_test_path = os.path.join(args.output_dir, 'log_test_{}.txt'.format(run_tag))
+    log_test = open(log_test_path, 'w')
     log_test.write('epoch val_acc\n')
 
     print("training...")
@@ -195,8 +218,15 @@ def main():
         if val_acc >= best_acc:
             best_acc = val_acc
             torch.save(net.state_dict(), bestWeightFile)
-        # 同时保存一个带时间戳、epoch 和 loss 的快照文件，便于回溯不同训练阶段的模型。
-        torch.save(net.state_dict(), "model {}_model_iter_{}_{}_loss_{:.2f}.pkl".format(time.strftime('%y%m%d%H'), epoch, i, loss.item()))  # current is model.pkl
+        # 如需保留每轮快照，可显式开启该选项。
+        if args.save_checkpoints:
+            checkpoint_path = os.path.join(
+                args.output_dir,
+                "model_{}_epoch_{}_step_{}_loss_{:.2f}.pkl".format(
+                    run_tag, epoch, i, loss.item()
+                ),
+            )
+            torch.save(net.state_dict(), checkpoint_path)
         print(
             "epoch:",
             epoch + 1,

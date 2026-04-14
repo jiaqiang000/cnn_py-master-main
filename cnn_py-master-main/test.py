@@ -10,6 +10,7 @@
 该脚本采用逐条推理的方式，逻辑直观，便于教学演示。
 """
 
+import argparse
 import os
 
 import numpy as np
@@ -62,8 +63,22 @@ def parse_net_result(out):
     return label, score
 
 
+def parse_args():
+    """
+    支持从指定目录读取训练输出的权重文件。
+    """
+    parser = argparse.ArgumentParser(description='Evaluate TextCNN on the validation set.')
+    parser.add_argument(
+        '--weight-dir',
+        default='outputs',
+        help='directory containing best_weight.pkl or weight.pkl',
+    )
+    return parser.parse_args()
+
+
 def main():
     """测试入口函数。"""
+    args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 初始化网络结构。
@@ -71,7 +86,13 @@ def main():
     net = textCNN(textCNN_param)
 
     # 优先读取训练过程中保存的最佳权重，其次读取最新权重。
-    weight_candidates = ['best_weight.pkl', 'weight.pkl', 'textCNN.pkl']
+    weight_candidates = [
+        os.path.join(args.weight_dir, 'best_weight.pkl'),
+        os.path.join(args.weight_dir, 'weight.pkl'),
+        'best_weight.pkl',
+        'weight.pkl',
+        'textCNN.pkl',
+    ]
     weightFile = None
     for file_name in weight_candidates:
         if os.path.exists(file_name):
